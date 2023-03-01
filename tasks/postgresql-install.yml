@@ -1,0 +1,95 @@
+---
+
+- name: Ajouter clé PostgreSQL (Debian)
+# apt_key module deprecated
+  get_url:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    dest: /etc/apt/trusted.gpg.d/postgresql.asc
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+- name: Ajouter le dépôt PostgreSQL (Debian)
+  apt_repository:
+    repo: "deb [signed-by=/etc/apt/trusted.gpg.d/postgresql.asc] http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+    state: present
+    filename: postgresql
+    update_cache: yes
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+- name: Installation de PostgreSQL (Debian)
+  apt:
+    name: "{{ packages }}"
+    state: latest
+  vars:
+    packages:
+      - postgresql=15*
+      - postgresql-contrib=15*
+      - python3-psycopg2
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+- name: Activation et démarrage de PostgreSQL (Debian)
+  systemd:
+    name: postgresql
+    state: started
+    enabled: true
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+- name: Configuration de PostgreSQL
+  lineinfile:
+    regexp: ^#?listen_addresses = .*$
+    line: listen_addresses = '*'
+    path: /etc/postgresql/15/main/postgresql.conf
+  notify: Redémarrer PostgreSQL
+
+# https://serverfault.com/a/1040389
+- name: Récupérer l'interface réseau
+  set_fact:
+    netInterface: "{{ ansible_facts | dict2items | selectattr('value.ipv4', 'defined') | selectattr('value.ipv4.address', 'equalto', ansible_host) | first }}"
+
+#- name: debug
+#  debug:
+#    var: netInterface
+#
+    # "netInterface": {
+    #     "key": "enp0s8",
+    #     "value": {
+    #         "active": true,
+    #         "device": "enp0s8",
+    #         "ipv4": {
+    #             "address": "192.168.56.6",
+    #             "broadcast": "192.168.56.255",
+    #             "netmask": "255.255.255.0",
+    #             "network": "192.168.56.0",
+    #             "prefix": "24"
+    #         },
+    #         "ipv6": [
+    #             {
+    #                 "address": "fe80::a00:27ff:fe0a:7cb0",
+    #                 "prefix": "64",
+    #                 "scope": "link"
+    #             }
+    #         ],
+    #         "macaddress": "08:00:27:0a:7c:b0",
+    #         "module": "e1000",
+    #         "mtu": 1500,
+    #         "pciid": "0000:00:08.0",
+    #         "promisc": false,
+    #         "speed": 1000,
+    #         "type": "ether"
+    #     }
+    # }
+
+
+- name: Configuration de l'authentification PostgreSQL
+  lineinfile:
+    regexp: "^host    all             all             {{ netInterface.value.ipv4.network }}/{{ netInterface.value.ipv4.prefix }}.*$"
+    line: "host    all             all             {{ netInterface.value.ipv4.network }}/{{ netInterface.value.ipv4.prefix }}            scram-sha-256"
+    path: /etc/postgresql/15/main/pg_hba.conf
+  notify: Redémarrer PostgreSQL
+
+- name: Create PostgreSQL user
+  postgresql_user:
+    name: "{{ postgresql_user }}"
+    password: "{{ postgresql_password }}"
+    role_attr_flags: CREATEDB,NOSUPERUSER
+  become_user: postgres
+  become: true

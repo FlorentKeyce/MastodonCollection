@@ -1,0 +1,236 @@
+---
+
+- name: Ajouter clé NodeJS (Debian)
+# apt_key module deprecated
+  get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource.gpg.key
+    dest: /etc/apt/trusted.gpg.d/nodesource.asc # .asc filename extension to avoid gpg --dearmor
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+- name: Ajouter le dépôt NodeJS 16 (Debian)
+  apt_repository:
+    repo: "deb [signed-by=/etc/apt/trusted.gpg.d/nodesource.asc] https://deb.nodesource.com/node_16.x {{ ansible_distribution_release }} main"
+    state: present
+    filename: nodesource
+    update_cache: yes
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+# Nécessaire sur les distributions incluant une version + récente de NodeJS que celle nécessaire
+- name: Apt-pinning pour les paquets NodeJS de nodesource
+  copy:
+    src: files/apt-nodesource-pref.conf
+    dest: /etc/apt/preferences.d/99nodesource
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+- name: Installation des paquets pour Mastodon (Debian)
+  apt:
+    name: "{{ packages }}"
+    state: latest
+  vars:
+    packages:
+      - postfix
+      - imagemagick
+      - ffmpeg
+      - libpq-dev
+      - libxml2-dev
+      - libxslt1-dev
+      - file
+      - git-core
+      - g++
+      - libprotobuf-dev
+      - protobuf-compiler
+      - pkg-config
+      - nodejs
+      - gcc
+      - autoconf
+      - bison
+      - build-essential
+      - libssl-dev
+      - libyaml-dev
+      - libreadline6-dev
+      - zlib1g-dev
+      - libncurses5-dev
+      - libffi-dev
+      - libgdbm-dev
+      - redis-server
+      - redis-tools
+      - libidn11-dev
+      - libicu-dev
+      - libjemalloc-dev
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+
+# TODO : voir npm pour installer yarn de manière + intégrée à Ansible
+- name: Installation de yarn via Corepack
+  command: corepack enable
+
+- name: Installation de yarn
+  command: yarn set version classic
+
+- name: Création d'un utilisateur mastodon
+  user:
+    name: mastodon
+    shell: /bin/bash
+    home: /home/mastodon
+    create_home: yes
+
+# TODO : rbenv et ruby-build sont dispos en paquets !!
+# Voir si possible de virer ces trucs
+- name: Récupération de rbenv
+  git: 
+    repo: https://github.com/rbenv/rbenv.git
+    dest: /home/mastodon/.rbenv
+  become_user: mastodon
+  become: true
+
+- name: Compilation de rbenv
+  shell: 
+    cmd: ./src/configure && make -C src
+    chdir: /home/mastodon/.rbenv
+  become_user: mastodon
+  become: true
+
+- name: Récupération de ruby-build
+  git: 
+    repo: https://github.com/rbenv/ruby-build.git
+    dest: /home/mastodon/.rbenv/plugins/ruby-build
+  become_user: mastodon
+  become: true
+
+- name: Récupérer l'environnement Bash pour rbenv
+  command: 
+    cmd: /home/mastodon/.rbenv/bin/rbenv init -
+  register: rbenv_bash
+  become_user: mastodon
+  become: true
+  changed_when: false
+
+- name: Configuration de l'environnement Bash pour rbenv
+  blockinfile:
+    marker: "# {mark} rbenv"
+    block: "{{ rbenv_bash.stdout }}"
+    path: ~/.bashrc
+  become_user: mastodon
+  become: true
+
+- name: Récupérer la version de Ruby
+  shell: 
+    cmd: ./rbenv version | cut -d ' ' -f 1
+    chdir: /home/mastodon/.rbenv/bin/
+  register: ruby_version
+  become_user: mastodon
+  become: true
+  changed_when: false
+
+- name: Installer l'environnement Ruby
+  shell: 
+    cmd: ./rbenv install -f 3.0.4 && ./rbenv global 3.0.4
+    chdir: /home/mastodon/.rbenv/bin/
+  environment:
+    RUBY_CONFIGURE_OPTS: --with-jemalloc
+  become_user: mastodon
+  become: true
+  when: ruby_version.stdout != '3.0.4'
+
+- name: Installer Bundler
+  gem:
+    name: bundler
+    state: present
+    executable: /home/mastodon/.rbenv/shims/gem
+    norc: true # to avoid warning about default value change
+  become_user: mastodon
+  become: true
+
+- name: Récupérer Mastodon
+  git: 
+    repo: https://github.com/mastodon/mastodon.git
+    dest: /home/mastodon/live
+    version: "{{ mastodon_version }}"
+    force: yes
+  become_user: mastodon
+  become: true
+  register: mastodon_git
+
+- name: Initialisation de Bundler
+  shell: 
+    cmd: /home/mastodon/.rbenv/shims/bundle config deployment 'true' && /home/mastodon/.rbenv/shims/bundle config without 'development test'
+    chdir: /home/mastodon/live/
+    creates: /home/mastodon/live/.bundle/config
+  become_user: mastodon
+  become: true
+
+- name: Installation de Mastodon
+  shell: 
+    cmd: /home/mastodon/.rbenv/shims/bundle install && yarn install --pure-lockfile
+    chdir: /home/mastodon/live/
+  become_user: mastodon
+  become: true
+  when: mastodon_git.changed
+  notify: Redémarrer Mastodon
+
+- name: Configuration de Mastodon
+  template:
+    src: files/.env.production
+    dest: /home/mastodon/live/.env.production
+    owner: mastodon
+    group: mastodon
+  notify: Redémarrer Mastodon
+
+- name: Vérifier si la base de données Mastodon existe
+  postgresql_db:
+    login_host: "{{ postgresql_host }}"
+    login_user: "{{ postgresql_user }}"
+    login_password: "{{ postgresql_password }}"
+    name: "{{ postgresql_database }}"
+    state: present
+  check_mode: yes
+  register: mastodon_db
+
+- name: Mise en place de la base de données
+  shell: 
+    cmd: /home/mastodon/.rbenv/shims/bundle exec rake db:setup
+    chdir: /home/mastodon/live/
+  environment:
+    RAILS_ENV: production
+  become_user: mastodon
+  become: true
+  when: mastodon_db.changed
+
+- name: Compilation des assets
+  shell: 
+    cmd: /home/mastodon/.rbenv/shims/bundle exec rake assets:precompile
+    chdir: /home/mastodon/live/
+  environment:
+    RAILS_ENV: production
+  become_user: mastodon
+  become: true
+  when: mastodon_git.changed
+
+- name: Installation des services Mastodon
+  copy:
+    src: /home/mastodon/live/dist/{{ item }}
+    dest: /etc/systemd/system/{{ item }}
+    remote_src: true
+  with_items: "{{ mastodon_services }}" 
+  notify: Redémarrer Mastodon
+
+- name: Créer le répertoire de configuration du service
+  file:
+    path: /etc/systemd/system/{{ item }}.d
+    state: directory
+  with_items: "{{ mastodon_services }}" 
+
+- name: Configuration de l'adresse d'écoute de Mastodon
+  template:
+    src: files/mastodon-service-bind.conf
+    dest: /etc/systemd/system/{{ item }}.d/bind.conf
+  with_items: "{{ mastodon_services }}" 
+  notify: Redémarrer Mastodon
+
+- name: Activer et lancer Mastodon
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  with_items: "{{ mastodon_services }}" 

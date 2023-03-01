@@ -1,0 +1,47 @@
+---
+
+- name: Dépendances Ansible
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Installation de paquets pip
+      pip:
+        name: netaddr
+        state: present
+
+- name: Configurations de base
+  hosts: all
+  throttle: 1 # nécessaire avec une seule VM !!
+  tasks:
+    - include_tasks: tasks/base.yml
+
+- name: Installation de PostgreSQL
+  hosts: mastodon_postgresql
+  tasks:
+    - include_tasks: tasks/postgresql-install.yml
+  handlers:
+  - name: Redémarrer PostgreSQL
+    systemd:
+      name: postgresql
+      state: restarted
+
+- name: Installation du proxy web
+  hosts: mastodon_webproxy
+  tasks:
+    - include_tasks: tasks/proxy-install.yml
+  handlers:
+  - name: Redémarrer Nginx
+    systemd:
+      name: nginx
+      state: restarted
+
+- name: Installation de Mastodon
+  hosts: mastodon
+  tasks:
+    - include_tasks: tasks/mastodon-install.yml
+  handlers:
+  - name: Redémarrer Mastodon
+    systemd:
+      name: "{{ item }}"
+      state: restarted
+    with_items: "{{ mastodon_services }}" 
