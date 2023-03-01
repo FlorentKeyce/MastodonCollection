@@ -73,8 +73,15 @@
     home: /home/mastodon
     create_home: yes
 
-# TODO : rbenv et ruby-build sont dispos en paquets !!
-# Voir si possible de virer ces trucs
+# Page d'erreur sur Ubuntu avec juste le logo Mastodon
+# Les logs de nginx indiquent plein de permission denied
+- name: Modifier les permissions du répertoire de Mastodon
+  file:
+    path: /home/mastodon/
+    mode: 0755
+
+# rbenv et ruby-build sont dispos en paquets !!
+# Mais dans des versions ne permettant pas d'installer Ruby 3 sur Debian :(
 - name: Récupération de rbenv
   git: 
     repo: https://github.com/rbenv/rbenv.git
