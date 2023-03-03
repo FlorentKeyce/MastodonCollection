@@ -126,26 +126,26 @@
 - name: Récupérer la version de Ruby
   shell: 
     cmd: ~/.rbenv/bin/rbenv version | cut -d ' ' -f 1
-  register: ruby_version
+  register: ruby_installed_version
   become_user: mastodon
   become: true
   changed_when: false
 
 - name: Installer l'environnement Ruby
   shell: 
-    cmd: ~/.rbenv/bin/rbenv install -f 3.0.4 && ~/.rbenv/bin/rbenv global 3.0.4
+    cmd: "~/.rbenv/bin/rbenv install -f {{ ruby_version }} && ~/.rbenv/bin/rbenv global {{ ruby_version }}"
   environment:
     RUBY_CONFIGURE_OPTS: --with-jemalloc
   become_user: mastodon
   become: true
-  when: ruby_version.stdout != '3.0.4'
+  when: ruby_installed_version.stdout != ruby_version
 
 - name: Installer Bundler
   gem:
     name: bundler
     state: present
     executable: ~/.rbenv/shims/gem
-    norc: true # to avoid warning about default value change
+    norc: true # Eviter un warning de changement de valeur par défaut
   become_user: mastodon
   become: true
 
@@ -175,6 +175,69 @@
   when: mastodon_git.changed
   notify: Redémarrer Mastodon
 
+- name: Récupération ou génération de SECRET_KEY_BASE
+  shell:
+    cmd: SECRET_KEY_BASE=$(grep SECRET_KEY_BASE= ~mastodon/live/.env.production|cut -d '=' -f2); [ -z $SECRET_KEY_BASE ] && RAILS_ENV=production ~/.rbenv/shims/bundle exec rake secret || echo $SECRET_KEY_BASE
+    chdir: ~/live/
+  become_user: mastodon
+  become: true
+  changed_when: false
+  register: secret_key_base
+
+- name: Récupération ou génération de OTP_SECRET
+  shell:
+    cmd: OTP_SECRET=$(grep OTP_SECRET= ~mastodon/live/.env.production|cut -d '=' -f2); [ -z $OTP_SECRET ] && ~/.rbenv/shims/bundle exec rake secret || echo $OTP_SECRET
+    chdir: ~/live/
+  environment:
+    RAILS_ENV: production
+  become_user: mastodon
+  become: true
+  changed_when: false
+  register: otp_secret
+
+- name: Récupération de VAPID_PRIVATE_KEY
+  shell:
+    cmd: grep VAPID_PRIVATE_KEY= ~mastodon/live/.env.production | sed -e 's/VAPID_PRIVATE_KEY=//' 
+    chdir: ~/live/
+  become_user: mastodon
+  become: true
+  changed_when: false
+  register: vapid_private_key
+
+- name: Récupération de VAPID_PUBLIC_KEY
+  shell:
+    cmd: grep VAPID_PUBLIC_KEY= ~mastodon/live/.env.production | sed -e 's/VAPID_PUBLIC_KEY=//' 
+    chdir: ~/live/
+  become_user: mastodon
+  become: true
+  changed_when: false
+  register: vapid_public_key
+
+- name: Génération des clés VAPID
+  shell:
+    cmd: ~/.rbenv/shims/bundle exec rake mastodon:webpush:generate_vapid_key
+    chdir: ~/live/
+  environment:
+    RAILS_ENV: production
+  become_user: mastodon
+  become: true
+  register: vapid_keys
+  when: not vapid_private_key.stdout|length or not vapid_public_key.stdout|length
+
+# https://stackoverflow.com/a/60074125
+- name: Définition des clés VAPID
+  set_fact:
+    vapid_private_key: { 'stdout' : "{{ vapid_keys.stdout.splitlines()|
+                           select('match', '^VAPID_PRIVATE_KEY=(.*)$')|
+                           map('regex_replace', my_regex, my_replace)|first }}" }
+    vapid_public_key: { 'stdout' : "{{ vapid_keys.stdout.splitlines()|
+                           select('match', '^VAPID_PUBLIC_KEY=(.*)$')|
+                           map('regex_replace', my_regex, my_replace)|first }}" }
+  vars:
+    my_regex: '^([A-Z_]*)=(.*)$'
+    my_replace: '\2'
+  when: not vapid_private_key.stdout|length or not vapid_public_key.stdout|length  
+
 - name: Configuration de Mastodon
   template:
     src: files/.env.production
@@ -194,7 +257,7 @@
   register: mastodon_db
 
 - name: Mise en place de la base de données
-  shell: 
+  command: 
     cmd: ~/.rbenv/shims/bundle exec rake db:setup
     chdir: ~/live/
   environment:
@@ -204,7 +267,7 @@
   when: mastodon_db.changed
 
 - name: Compilation des assets
-  shell: 
+  command: 
     cmd: ~/.rbenv/shims/bundle exec rake assets:precompile
     chdir: ~/live/
   environment:
