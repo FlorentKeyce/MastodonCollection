@@ -1,26 +1,43 @@
 ---
 
-- name: Ajouter clé NodeJS (Debian)
+- name: Ajouter clé NodeJS
 # apt_key module deprecated
   get_url:
     url: https://deb.nodesource.com/gpgkey/nodesource.gpg.key
     dest: /etc/apt/trusted.gpg.d/nodesource.asc # .asc filename extension to avoid gpg --dearmor
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  when: ansible_os_family == "Debian"
 
-- name: Ajouter le dépôt NodeJS 16 (Debian)
+- name: Ajouter le dépôt NodeJS 16
   apt_repository:
     repo: "deb [signed-by=/etc/apt/trusted.gpg.d/nodesource.asc] https://deb.nodesource.com/node_16.x {{ ansible_distribution_release }} main"
     state: present
     filename: nodesource
     update_cache: yes
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  when: ansible_os_family == "Debian"
 
-# Nécessaire sur les distributions incluant une version + récente de NodeJS que celle nécessaire
-- name: Apt-pinning pour les paquets NodeJS de nodesource
+- name: Ajouter clé Yarnpkg
+  get_url:
+    url: https://dl.yarnpkg.com/debian/pubkey.gpg
+    dest: /etc/apt/trusted.gpg.d/yarnpkg.asc
+  when: ansible_os_family == "Debian"
+
+- name: Ajouter le dépôt Yarnpkg
+  apt_repository:
+    repo: "deb [signed-by=/etc/apt/trusted.gpg.d/yarnpkg.asc] https://dl.yarnpkg.com/debian/ stable main"
+    state: present
+    filename: yarnpkg
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+# Nécessaire sur les distributions incluant une version + récente de NodeJS/Yarn que celle nécessaire
+- name: Apt-pinning pour les paquets NodeJS/Yarn
   copy:
-    src: files/apt-nodesource-pref.conf
-    dest: /etc/apt/preferences.d/99nodesource
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+    src: files/{{ item }}
+    dest: /etc/apt/preferences.d/{{ item }}
+  with_items:
+  - 99nodesource
+  - 99yarnpkg
+  when: ansible_os_family == "Debian"
 
 - name: Installation des paquets pour Mastodon (Debian)
   apt:
@@ -36,12 +53,10 @@
       - libxslt1-dev
       - file
       - git-core
-      - g++
       - libprotobuf-dev
       - protobuf-compiler
       - pkg-config
       - nodejs
-      - gcc
       - autoconf
       - bison
       - build-essential
@@ -57,14 +72,8 @@
       - libidn11-dev
       - libicu-dev
       - libjemalloc-dev
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
-
-# TODO : voir npm pour installer yarn de manière + intégrée à Ansible
-- name: Installation de yarn via Corepack
-  command: corepack enable
-
-- name: Installation de yarn
-  command: yarn set version classic
+      - yarn
+  when: ansible_os_family == "Debian"
 
 - name: Création d'un utilisateur mastodon
   user:
@@ -77,39 +86,33 @@
 # Les logs de nginx indiquent plein de permission denied
 - name: Modifier les permissions du répertoire de Mastodon
   file:
-    path: /home/mastodon/
+    path: ~mastodon/
     mode: 0755
 
 # rbenv et ruby-build sont dispos en paquets !!
 # Mais dans des versions ne permettant pas d'installer Ruby 3 sur Debian :(
-- name: Récupération de rbenv
-  git: 
-    repo: https://github.com/rbenv/rbenv.git
-    dest: /home/mastodon/.rbenv
+- name: Récupération de l'installeur rbenv
+  get_url: 
+    url: https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer
+    dest: ~/rbenv-installer
   become_user: mastodon
   become: true
+  register: rbenv_installer
 
-- name: Compilation de rbenv
-  shell: 
-    cmd: ./src/configure && make -C src
-    chdir: /home/mastodon/.rbenv
+- name: Installation de rbenv
+  command: 
+    cmd: bash ~/rbenv-installer
   become_user: mastodon
   become: true
-
-- name: Récupération de ruby-build
-  git: 
-    repo: https://github.com/rbenv/ruby-build.git
-    dest: /home/mastodon/.rbenv/plugins/ruby-build
-  become_user: mastodon
-  become: true
+  when: rbenv_installer.changed
 
 - name: Récupérer l'environnement Bash pour rbenv
   command: 
-    cmd: /home/mastodon/.rbenv/bin/rbenv init -
+    cmd: ~/.rbenv/bin/rbenv init -
   register: rbenv_bash
   become_user: mastodon
   become: true
-  changed_when: false
+  when: rbenv_installer.changed
 
 - name: Configuration de l'environnement Bash pour rbenv
   blockinfile:
@@ -118,11 +121,11 @@
     path: ~/.bashrc
   become_user: mastodon
   become: true
+  when: rbenv_installer.changed
 
 - name: Récupérer la version de Ruby
   shell: 
-    cmd: ./rbenv version | cut -d ' ' -f 1
-    chdir: /home/mastodon/.rbenv/bin/
+    cmd: ~/.rbenv/bin/rbenv version | cut -d ' ' -f 1
   register: ruby_version
   become_user: mastodon
   become: true
@@ -130,8 +133,7 @@
 
 - name: Installer l'environnement Ruby
   shell: 
-    cmd: ./rbenv install -f 3.0.4 && ./rbenv global 3.0.4
-    chdir: /home/mastodon/.rbenv/bin/
+    cmd: ~/.rbenv/bin/rbenv install -f 3.0.4 && ~/.rbenv/bin/rbenv global 3.0.4
   environment:
     RUBY_CONFIGURE_OPTS: --with-jemalloc
   become_user: mastodon
@@ -142,7 +144,7 @@
   gem:
     name: bundler
     state: present
-    executable: /home/mastodon/.rbenv/shims/gem
+    executable: ~/.rbenv/shims/gem
     norc: true # to avoid warning about default value change
   become_user: mastodon
   become: true
@@ -150,25 +152,24 @@
 - name: Récupérer Mastodon
   git: 
     repo: https://github.com/mastodon/mastodon.git
-    dest: /home/mastodon/live
+    dest: ~/live
     version: "{{ mastodon_version }}"
     force: yes
   become_user: mastodon
   become: true
   register: mastodon_git
 
-- name: Initialisation de Bundler
-  shell: 
-    cmd: /home/mastodon/.rbenv/shims/bundle config deployment 'true' && /home/mastodon/.rbenv/shims/bundle config without 'development test'
-    chdir: /home/mastodon/live/
-    creates: /home/mastodon/live/.bundle/config
-  become_user: mastodon
-  become: true
+- name: Configuration de Bundler
+  template:
+    src: files/bundler.conf
+    dest: ~mastodon/live/.bundle/config
+    owner: mastodon
+    group: mastodon
 
 - name: Installation de Mastodon
   shell: 
-    cmd: /home/mastodon/.rbenv/shims/bundle install && yarn install --pure-lockfile
-    chdir: /home/mastodon/live/
+    cmd: ~/.rbenv/shims/bundle install && yarn install --pure-lockfile
+    chdir: ~/live/
   become_user: mastodon
   become: true
   when: mastodon_git.changed
@@ -177,7 +178,7 @@
 - name: Configuration de Mastodon
   template:
     src: files/.env.production
-    dest: /home/mastodon/live/.env.production
+    dest: ~mastodon/live/.env.production
     owner: mastodon
     group: mastodon
   notify: Redémarrer Mastodon
@@ -194,8 +195,8 @@
 
 - name: Mise en place de la base de données
   shell: 
-    cmd: /home/mastodon/.rbenv/shims/bundle exec rake db:setup
-    chdir: /home/mastodon/live/
+    cmd: ~/.rbenv/shims/bundle exec rake db:setup
+    chdir: ~/live/
   environment:
     RAILS_ENV: production
   become_user: mastodon
@@ -204,8 +205,8 @@
 
 - name: Compilation des assets
   shell: 
-    cmd: /home/mastodon/.rbenv/shims/bundle exec rake assets:precompile
-    chdir: /home/mastodon/live/
+    cmd: ~/.rbenv/shims/bundle exec rake assets:precompile
+    chdir: ~/live/
   environment:
     RAILS_ENV: production
   become_user: mastodon
@@ -214,7 +215,7 @@
 
 - name: Installation des services Mastodon
   copy:
-    src: /home/mastodon/live/dist/{{ item }}
+    src: ~mastodon/live/dist/{{ item }}
     dest: /etc/systemd/system/{{ item }}
     remote_src: true
   with_items: "{{ mastodon_services }}" 
@@ -239,5 +240,5 @@
     state: started
     enabled: true
     daemon_reload: true
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  when: ansible_os_family == "Debian"
   with_items: "{{ mastodon_services }}" 

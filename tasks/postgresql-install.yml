@@ -5,7 +5,7 @@
   get_url:
     url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
     dest: /etc/apt/trusted.gpg.d/postgresql.asc
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  when: ansible_os_family == "Debian"
 
 - name: Ajouter le dépôt PostgreSQL (Debian)
   apt_repository:
@@ -13,7 +13,7 @@
     state: present
     filename: postgresql
     update_cache: yes
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  when: ansible_os_family == "Debian"
 
 - name: Installation de PostgreSQL (Debian)
   apt:
@@ -24,14 +24,14 @@
       - postgresql=15*
       - postgresql-contrib=15*
       - python3-psycopg2
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  when: ansible_os_family == "Debian"
 
 - name: Activation et démarrage de PostgreSQL (Debian)
   systemd:
     name: postgresql
     state: started
     enabled: true
-  when: ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+  when: ansible_os_family == "Debian"
 
 - name: Configuration de PostgreSQL
   lineinfile:

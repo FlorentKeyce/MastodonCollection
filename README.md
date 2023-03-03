@@ -12,7 +12,7 @@ Mastodon est codé en Ruby et JavaScript (framework NodeJS).
 Glossaire : 
 
 Yarn : Package Manager NodeJS
-Corepack : Experimental tool to help with managing versions of your NodeJS package managers
+Corepack : Experimental tool to help with managing versions of your NodeJS package managers (installé avec NodeJS)
 Rbenv : Version manager tool for Ruby
-Gem : (RubyGems) Package Manager Ruby
-Bundler (bundle command) : provides a consistent environment for Ruby projects by tracking and installing the exact gems and versions that are needed
+Gem : (RubyGems) Package Manager Ruby (installé avec Rbenv)
+Bundler (bundle command) : provides a consistent environment for Ruby projects by tracking and installing the exact gems and versions that are needed (installé avec Gem)
