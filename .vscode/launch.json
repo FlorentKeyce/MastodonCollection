@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Ansible Playbook",
+            "type": "python",
+            "request": "launch",
+            "program": "bin/run.py",
+            "args": [
+                "playbook-mastodon.yml"
+               ],
+            "env": {
+                "ANSIBLE_TEST_VAR": "test"
+            },
+            "console": "integratedTerminal"
+        }
+    ]
+}
