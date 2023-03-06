@@ -1,0 +1,4 @@
+---
+
+- name: Run tasks for PostgreSQL
+  include_tasks: "main-{{ ansible_os_family }}.yml"

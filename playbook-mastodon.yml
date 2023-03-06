@@ -17,13 +17,8 @@
 
 - name: Installation de PostgreSQL
   hosts: mastodon_postgresql
-  tasks:
-    - include_tasks: tasks/postgresql-install.yml
-  handlers:
-  - name: Redémarrer PostgreSQL
-    systemd:
-      name: postgresql
-      state: restarted
+  roles:
+    - simple-postgresql
 
 - name: Installation du proxy web
   hosts: mastodon_webproxy

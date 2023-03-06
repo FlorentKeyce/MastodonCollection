@@ -1,21 +1,19 @@
 ---
 
-- name: Ajouter clé PostgreSQL (Debian)
+- name: Ajouter clé PostgreSQL
 # apt_key module deprecated
   get_url:
     url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
     dest: /etc/apt/trusted.gpg.d/postgresql.asc
-  when: ansible_os_family == "Debian"
 
-- name: Ajouter le dépôt PostgreSQL (Debian)
+- name: Ajouter le dépôt PostgreSQL
   apt_repository:
     repo: "deb [signed-by=/etc/apt/trusted.gpg.d/postgresql.asc] http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
     state: present
     filename: postgresql
     update_cache: yes
-  when: ansible_os_family == "Debian"
 
-- name: Installation de PostgreSQL (Debian)
+- name: Installation de PostgreSQL
   apt:
     name: "{{ packages }}"
     state: latest
@@ -24,14 +22,12 @@
       - postgresql=15*
       - postgresql-contrib=15*
       - python3-psycopg2
-  when: ansible_os_family == "Debian"
 
-- name: Activation et démarrage de PostgreSQL (Debian)
+- name: Activation et démarrage de PostgreSQL
   systemd:
     name: postgresql
     state: started
     enabled: true
-  when: ansible_os_family == "Debian"
 
 - name: Configuration de PostgreSQL
   lineinfile:
