@@ -159,6 +159,13 @@
   become: true
   register: mastodon_git
 
+- name: Créer le répertoire .bundle
+  file:
+    path: ~mastodon/live/.bundle
+    state: directory
+    owner: mastodon
+    group: mastodon
+
 - name: Configuration de Bundler
   template:
     src: files/bundler.conf
