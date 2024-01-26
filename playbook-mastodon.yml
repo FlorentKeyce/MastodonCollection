@@ -8,6 +8,7 @@
       pip:
         name: netaddr
         state: present
+        extra_args: --break-system-packages
 
 - name: Configurations de base
   hosts: all

@@ -19,8 +19,8 @@
     state: latest
   vars:
     packages:
-      - postgresql=15*
-      - postgresql-contrib=15*
+      - postgresql=16*
+      - postgresql-contrib=16*
       - python3-psycopg2
 
 - name: Activation et démarrage de PostgreSQL
@@ -33,7 +33,7 @@
   lineinfile:
     regexp: ^#?listen_addresses = .*$
     line: listen_addresses = '*'
-    path: /etc/postgresql/15/main/postgresql.conf
+    path: /etc/postgresql/16/main/postgresql.conf
   notify: Redémarrer PostgreSQL
 
 # https://serverfault.com/a/1040389
@@ -79,7 +79,7 @@
   lineinfile:
     regexp: "^host    all             all             {{ netInterface.value.ipv4.network }}/{{ netInterface.value.ipv4.prefix }}.*$"
     line: "host    all             all             {{ netInterface.value.ipv4.network }}/{{ netInterface.value.ipv4.prefix }}            scram-sha-256"
-    path: /etc/postgresql/15/main/pg_hba.conf
+    path: /etc/postgresql/16/main/pg_hba.conf
   notify: Redémarrer PostgreSQL
 
 - name: Create PostgreSQL user
