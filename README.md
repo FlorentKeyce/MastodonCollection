@@ -1,6 +1,6 @@
 # Ansible Mastodon Collection
 
-Blablah
+Note mise à jour 2024 : ce playbook n'est pas totalement fonctionnel, il manque un partage de fichiers entre le serveur Mastodon et le frontal web (nginx).
 
 ## Usage
 
